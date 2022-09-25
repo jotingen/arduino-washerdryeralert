@@ -4,4 +4,6 @@
 .vscode/launch.json
 .vscode/ipch
 
-src/WiFiCredentials.h
+include/WiFiCredentials.h
+include/EmailCredentials.h
+include/Recipients.h
