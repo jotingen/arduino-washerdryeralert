@@ -1,3 +1,5 @@
+#include <print.h>
+
 #include <Arduino.h>
 
 // For WIFI
@@ -24,6 +26,7 @@
 //   char* RECIPIENTS[] = {};
 //   int RECIPIENTS_LEN = sizeof(RECIPIENTS)/sizeof(RECIPIENTS[0]);
 #include "Recipients.h"
+
 /* The SMTP Session object used for Email sending */
 SMTPSession smtp;
 
@@ -47,9 +50,9 @@ const uint32_t WASHER = 36;
 const uint32_t DRYER = 39;
 
 // WIFI
-const uint32_t MILLIS_WIFI_REFRESH = 3600000;       // Time in milliseconds to refresh epoch from wifi
-const uint32_t MILLIS_WIFI_CONNECTION_WAIT = 10000; // Time in milliseconds to wait after starting wifi connection
-uint64_t millis_wifi_start_connection = 0;          // Time in milliseconds from when WiFi connection attempt started
+const uint64_t MILLIS_WIFI_REFRESH = 3600000;       // Time in milliseconds to refresh epoch from wifi
+const uint64_t MILLIS_WIFI_CONNECTION_WAIT = 10000; // Time in milliseconds to wait after attempting to start wifi connection
+uint64_t millis_wifi_connection_wait = 0;           // Time in milliseconds from when WiFi connection attempt started
 
 /* Callback function to get the Email sending status */
 void smtpCallback(SMTP_Status status);
@@ -60,10 +63,10 @@ void pushMsg();
 
 void errorMsg(String error, bool restart = true)
 {
-  Serial.println(error);
+  println(error);
   if (restart)
   {
-    Serial.println("Rebooting now...");
+    println("Rebooting now...");
     delay(2000);
     ESP.restart();
     delay(2000);
@@ -73,32 +76,29 @@ void errorMsg(String error, bool restart = true)
 // (optional) callback functions for telnet events
 void onTelnetConnect(String ip)
 {
-  Serial.print("- Telnet: ");
-  Serial.print(ip);
-  Serial.println(" connected");
-  telnet.println("\nWelcome " + telnet.getIP());
-  telnet.println("(Use ^] + q  to disconnect.)");
+  println("\nWelcome" + telnet.getIP());
+  println("(Use ^] + q  to disconnect.)");
 }
 
 void onTelnetDisconnect(String ip)
 {
-  Serial.print("- Telnet: ");
-  Serial.print(ip);
-  Serial.println(" disconnected");
+  print("- Telnet: ");
+  print(ip);
+  println(" disconnected");
 }
 
 void onTelnetReconnect(String ip)
 {
-  Serial.print("- Telnet: ");
-  Serial.print(ip);
-  Serial.println(" reconnected");
+  print("- Telnet: ");
+  print(ip);
+  println(" reconnected");
 }
 
 void onTelnetConnectionAttempt(String ip)
 {
-  Serial.print("- Telnet: ");
-  Serial.print(ip);
-  Serial.println(" tried to connected");
+  print("- Telnet: ");
+  print(ip);
+  println(" tried to connected");
 }
 void setupTelnet()
 {
@@ -113,22 +113,21 @@ void setupTelnet()
                          {
     // checks for a certain command
     if (str == "ping") {
-      telnet.println("> pong");
-      Serial.println("- Telnet: pong");
+      println("> pong");
     // disconnect the client
     } else if (str == "bye") {
-      telnet.println("> disconnecting you...");
+      println("> disconnecting you...");
       telnet.disconnectClient();
       } });
 
-  Serial.print("- Telnet: ");
+  print("- Telnet: ");
   if (telnet.begin(TELNET_PORT))
   {
-    Serial.println("running");
+    println("running");
   }
   else
   {
-    Serial.println("error.");
+    println("error.");
     errorMsg("Will reboot...");
   }
 }
@@ -200,7 +199,7 @@ void pushMsg()
 
     /* Start sending Email and close the session */
     if (!MailClient.sendMail(&smtp, &message))
-      Serial.println("Error sending Email, " + smtp.errorReason());
+      println("Error sending Email, " + smtp.errorReason());
   }
 }
 
@@ -222,7 +221,10 @@ void setup()
   {
     delay(500);
   }
-  Serial.println("WIFI Connected");
+  println("WIFI Connected");
+
+  setupTelnet();
+  println("Telnet Running");
 
   ArduinoOTA
       .onStart([]()
@@ -234,30 +236,27 @@ void setup()
         type = "filesystem";
 
       // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-      Serial.println("Start updating " + type); })
+      println("Start updating " + type); })
       .onEnd([]()
-             { Serial.println("\nEnd"); })
+             { println("\nEnd"); })
       .onProgress([](unsigned int progress, unsigned int total)
-                  { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); })
+                  { printf("Progress: %u%%\r", (progress / (total / 100))); })
       .onError([](ota_error_t error)
                {
-      Serial.printf("Error[%u]: ", error);
-      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-      else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
+      printf("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) println("Auth Failed");
+      else if (error == OTA_BEGIN_ERROR) println("Begin Failed");
+      else if (error == OTA_CONNECT_ERROR) println("Connect Failed");
+      else if (error == OTA_RECEIVE_ERROR) println("Receive Failed");
+      else if (error == OTA_END_ERROR) println("End Failed"); });
 
   ArduinoOTA.begin();
-  Serial.println("ArduinoOTA Running");
-
-  setupTelnet();
-  Serial.println("Telnet Running");
+  println("ArduinoOTA Running");
 
   delay(1000);
   digitalWrite(LED, LOW);
 
-  Serial.println("Setup Done");
+  println("Setup Done");
 }
 
 int count = 0;
@@ -268,7 +267,7 @@ void loop()
   telnet.loop();
 
   digitalWrite(PROBE, HIGH);
-  telnet.println((String)analogReadMilliVolts(WASHER));
+  println((String)analogReadMilliVolts(WASHER));
   digitalWrite(PROBE, LOW);
 
   digitalWrite(LED_WASHER, count%2==0);
@@ -286,29 +285,29 @@ bool connectedToWifi()
 
 void connectToWiFi()
 {
-  Serial.print("Attempting to connect to WPA SSID: ");
-  Serial.println(WIFI_SSID);
+  print("Attempting to connect to WPA SSID: ");
+  println(WIFI_SSID);
 
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-  millis_wifi_start_connection = millis();
+  millis_wifi_connection_wait = millis();
 }
 
 /* Callback function to get the Email sending status */
 void smtpCallback(SMTP_Status status)
 {
   /* Print the current status */
-  Serial.println(status.info());
+  println(status.info());
 
   /* Print the sending result */
   if (status.success())
   {
-    Serial.println("----------------");
+    println("----------------");
     ESP_MAIL_PRINTF("Message sent success: %d\n", status.completedCount());
     ESP_MAIL_PRINTF("Message sent failled: %d\n", status.failedCount());
-    Serial.println("----------------\n");
+    println("----------------\n");
     struct tm dt;
 
     for (size_t i = 0; i < smtp.sendingResult.size(); i++)
@@ -324,6 +323,6 @@ void smtpCallback(SMTP_Status status)
       ESP_MAIL_PRINTF("Recipient: %s\n", result.recipients);
       ESP_MAIL_PRINTF("Subject: %s\n", result.subject);
     }
-    Serial.println("----------------\n");
+    println("----------------\n");
   }
 }
