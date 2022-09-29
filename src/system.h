@@ -2,6 +2,9 @@
 #define SYSTEM_H
 
 #include <Arduino.h>
+#include <ESPTelnet.h>
+
+extern ESPTelnet telnet;
 
 /* ------------------------------------------------- */
 
@@ -18,6 +21,7 @@ void println(const char c);
 /* ------------------------------------------------- */
 
 void println(const String &str);
+void println(const String &str);
 
 /* ------------------------------------------------- */
 
@@ -25,7 +29,7 @@ void println();
 
 /* ------------------------------------------------- */
 
-void systemSetup();
+void systemSetup ( void (*onInputRecieved)(String) );
 
 /* ------------------------------------------------- */
 

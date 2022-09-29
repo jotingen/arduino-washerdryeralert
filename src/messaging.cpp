@@ -54,7 +54,7 @@ void smtpCallback(SMTP_Status status)
 
 /* ------------------------------------------------- */
 
-void sendMsg(char *recipient, char *msg)
+void sendMsg(const char *recipient, const char *msg)
 {
   /** Enable the debug via Serial port
    * none debug or 0

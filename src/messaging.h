@@ -1,6 +1,6 @@
 #ifndef MESSAGING_H
 #define MESSAGING_H
 
-void sendMsg(char *recipient, char *msg);
+void sendMsg(const char *recipient, const char *msg);
 
 #endif

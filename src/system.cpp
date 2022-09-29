@@ -150,25 +150,15 @@ void onTelnetConnectionAttempt(String ip)
 
 /* ------------------------------------------------- */
 
-void setupTelnet()
+void setupTelnet( void (*onInputRecieved)(String) )
 {
     // passing on functions for various telnet events
     telnet.onConnect(onTelnetConnect);
     telnet.onConnectionAttempt(onTelnetConnectionAttempt);
     telnet.onReconnect(onTelnetReconnect);
     telnet.onDisconnect(onTelnetDisconnect);
+    telnet.onInputReceived(onInputRecieved);
 
-    // passing a lambda function
-    telnet.onInputReceived([](String str)
-                           {
-    // checks for a certain command
-    if (str == "ping") {
-      println("> pong");
-    // disconnect the client
-    } else if (str == "bye") {
-      println("> disconnecting you...");
-      telnet.disconnectClient();
-      } });
 
     print("- Telnet: ");
     if (telnet.begin(TELNET_PORT))
@@ -184,7 +174,7 @@ void setupTelnet()
 
 /* ------------------------------------------------- */
 
-void systemSetup()
+void systemSetup ( void (*onInputRecieved)(String) )
 {
     connectToWiFi();
     println("WIFI Connected");
@@ -216,7 +206,7 @@ void systemSetup()
     ArduinoOTA.begin();
     println("ArduinoOTA Running");
 
-    setupTelnet();
+    setupTelnet(onInputRecieved);
     println("Telnet Running");
 }
 
