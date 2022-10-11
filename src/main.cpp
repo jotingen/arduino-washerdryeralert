@@ -14,8 +14,8 @@
 
 // ESP LED
 const uint32_t LED = 2;
-const uint32_t LED_WASHER = 25;
-const uint32_t LED_DRYER = 26;
+const uint32_t LED_WASHER = 26;
+const uint32_t LED_DRYER = 25;
 const uint32_t LED_CHANNEL = 1;
 const uint32_t LED_CHANNEL_WASHER = 2;
 const uint32_t LED_CHANNEL_DRYER = 3;
@@ -31,18 +31,18 @@ const uint32_t DRYER = 39;
 const uint32_t SAMPLES_PER_HERTZ = 10;
 const uint32_t SAMPLES_PER_SECOND = 60 * SAMPLES_PER_HERTZ;
 const uint64_t MILLIS_SAMPLE_INTERVAL = 1000 / SAMPLES_PER_SECOND;
-// Time to wait before considering device to be on
-//  Set to 5 sec for now
-const uint64_t MILLIS_HYSTERESIS_TURNED_ON = 1000 * 5;
+//Number of samples to keep until adding to history
+// Set to 4 per second
+const uint32_t SAMPLES_LEN = SAMPLES_PER_SECOND / 4;
+// Number of samples to see power on with before considering device to be on
+//  Set to 1.5 sec for now
+const uint64_t HISTORY_HYSTERESIS_TURNED_ON = 6;
 // Time to wait before considering device to be off
 //  Set to 5 min for now
-//  TODO DEBUG Set to 5 sec for now
-//  TODO const uint64_t MILLIS_HYSTERESIS_TURNED_OFF = 1000 * 60 * 5;
-const uint64_t MILLIS_HYSTERESIS_TURNED_OFF = 1000 * 5;
-const uint64_t MILLIS_HYSTERESIS_MAX = MILLIS_HYSTERESIS_TURNED_ON > MILLIS_HYSTERESIS_TURNED_OFF ? MILLIS_HYSTERESIS_TURNED_ON : MILLIS_HYSTERESIS_TURNED_OFF;
-const int32_t HISTORY_LEN = MILLIS_HYSTERESIS_MAX / 1000;
+const uint64_t HISTORY_HYSTERESIS_TURNED_OFF = 4 * 60 * 5;
+const uint64_t HISTORY_LEN = HISTORY_HYSTERESIS_TURNED_ON > HISTORY_HYSTERESIS_TURNED_OFF ? HISTORY_HYSTERESIS_TURNED_ON : HISTORY_HYSTERESIS_TURNED_OFF;
 // Threshold in millivolts for device to be considered on
-const int32_t ON_THRESHOLD = 1770;
+const int32_t ON_THRESHOLD = 1780;
 
 /* ------------------------------------------------- */
 
@@ -63,9 +63,9 @@ void pushMsg(const char *msg)
 
 uint64_t millis_sample_interval_last = 0;
 
-uint32_t samples_per_second_ndx = 0;
-uint32_t samples_per_second_washer[SAMPLES_PER_SECOND];
-uint32_t samples_per_second_dryer[SAMPLES_PER_SECOND];
+uint32_t samples_ndx = 0;
+uint32_t samples_washer[SAMPLES_LEN];
+uint32_t samples_dryer[SAMPLES_LEN];
 
 uint32_t history_ndx = 0;
 uint32_t history_washer[HISTORY_LEN];
@@ -137,13 +137,13 @@ const char *stateStr[] = {
     "Washer Wait / Dryer Off",
     "Washer Wait / Dryer On"};
 
-State currentState = State::WASHER_OFF__DRYER_OFF;
+State state;
 
 /* ------------------------------------------------- */
 
-bool haveSecondOfData()
+bool haveSamplesReady()
 {
-  return samples_per_second_ndx >= SAMPLES_PER_SECOND;
+  return samples_ndx >= SAMPLES_LEN;
 }
 
 void sampleProbes()
@@ -154,42 +154,43 @@ void sampleProbes()
     millis_sample_interval_last = millis();
 
     // Reset index if past end of arrays
-    if (haveSecondOfData())
+    if (haveSamplesReady())
     {
-      samples_per_second_ndx = 0;
+      samples_ndx = 0;
     }
 
     digitalWrite(PROBE, HIGH);
-    samples_per_second_washer[samples_per_second_ndx] = analogReadMilliVolts(WASHER);
-    samples_per_second_dryer[samples_per_second_ndx] = analogReadMilliVolts(DRYER);
+    samples_washer[samples_ndx] = analogReadMilliVolts(WASHER);
+    samples_dryer[samples_ndx] = analogReadMilliVolts(DRYER);
     digitalWrite(PROBE, LOW);
 
-    samples_per_second_ndx++;
+    samples_ndx++;
   }
 }
 
 void updateHistory()
 {
-  if (haveSecondOfData())
+  if (haveSamplesReady())
   {
     uint32_t washer_max_millivolts = 0;
     uint32_t dryer_max_millivolts = 0;
-    for (int32_t i = 0; i < SAMPLES_PER_SECOND; i++)
+    for (int32_t i = 0; i < SAMPLES_LEN; i++)
     {
       // Washer
-      if (samples_per_second_washer[i] > washer_max_millivolts)
+      if (samples_washer[i] > washer_max_millivolts)
       {
-        washer_max_millivolts = samples_per_second_washer[i];
+        washer_max_millivolts = samples_washer[i];
       }
       // Dryer
-      if (samples_per_second_dryer[i] > dryer_max_millivolts)
+      if (samples_dryer[i] > dryer_max_millivolts)
       {
-        dryer_max_millivolts = samples_per_second_dryer[i];
+        dryer_max_millivolts = samples_dryer[i];
       }
     }
 
     history_washer[history_ndx] = washer_max_millivolts;
     history_dryer[history_ndx] = dryer_max_millivolts;
+    println((String)washer_max_millivolts + " " + (String)dryer_max_millivolts + " " + (String)stateStr[(int)state]);
     history_ndx++;
     if (history_ndx >= HISTORY_LEN)
     {
@@ -202,7 +203,15 @@ bool washerOn()
 {
   for (int32_t i = 0; i < HISTORY_LEN; i++)
   {
-    if (history_washer[i] > ON_THRESHOLD)
+    bool on = true;
+    for (int32_t j = i; j < i + HISTORY_HYSTERESIS_TURNED_ON; j++)
+    {
+      if (history_washer[j % HISTORY_LEN] < ON_THRESHOLD)
+      {
+        on = false;
+      }
+    }
+    if (on)
     {
       return true;
     }
@@ -214,7 +223,15 @@ bool dryerOn()
 {
   for (int32_t i = 0; i < HISTORY_LEN; i++)
   {
-    if (history_dryer[i] > ON_THRESHOLD)
+    bool on = true;
+    for (int32_t j = i; j < i + HISTORY_HYSTERESIS_TURNED_ON; j++)
+    {
+      if (history_dryer[j % HISTORY_LEN] < ON_THRESHOLD)
+      {
+        on = false;
+      }
+    }
+    if (on)
     {
       return true;
     }
@@ -222,25 +239,25 @@ bool dryerOn()
   return false;
 }
 
-void stateLoop()
+State stateLoop(State state)
 {
-  switch (currentState)
+  switch (state)
   {
   case State::WASHER_OFF__DRYER_OFF:
     if (washerOn() && dryerOn())
     {
       pushMsg("Washer and Dryer Started");
-      currentState = State::WASHER_ON__DRYER_ON;
+      return State::WASHER_ON__DRYER_ON;
     }
     if (washerOn() && !dryerOn())
     {
       pushMsg("Washer Started");
-      currentState = State::WASHER_ON__DRYER_OFF;
+      return State::WASHER_ON__DRYER_OFF;
     }
     if (!washerOn() && dryerOn())
     {
       pushMsg("Dryer Started");
-      currentState = State::WASHER_OFF__DRYER_ON;
+      return State::WASHER_OFF__DRYER_ON;
     }
     if (!washerOn() && !dryerOn())
     {
@@ -251,12 +268,12 @@ void stateLoop()
     if (washerOn() && dryerOn())
     {
       pushMsg("Washer Started");
-      currentState = State::WASHER_ON__DRYER_ON;
+      return State::WASHER_ON__DRYER_ON;
     }
     if (washerOn() && !dryerOn())
     {
       pushMsg("Washer Started and Dryer Finished");
-      currentState = State::WASHER_ON__DRYER_OFF;
+      return State::WASHER_ON__DRYER_OFF;
     }
     if (!washerOn() && dryerOn())
     {
@@ -264,7 +281,7 @@ void stateLoop()
     if (!washerOn() && !dryerOn())
     {
       pushMsg("Dryer Finished");
-      currentState = State::WASHER_OFF__DRYER_OFF;
+      return State::WASHER_OFF__DRYER_OFF;
     }
     break;
 
@@ -272,7 +289,7 @@ void stateLoop()
     if (washerOn() && dryerOn())
     {
       pushMsg("Dryer Started");
-      currentState = State::WASHER_ON__DRYER_ON;
+      return State::WASHER_ON__DRYER_ON;
     }
     if (washerOn() && !dryerOn())
     {
@@ -280,12 +297,12 @@ void stateLoop()
     if (!washerOn() && dryerOn())
     {
       pushMsg("Washer Finished and Dryer Started");
-      currentState = State::WASHER_OFF__DRYER_ON;
+      return State::WASHER_OFF__DRYER_ON;
     }
     if (!washerOn() && !dryerOn())
     {
       pushMsg("Washer Waiting");
-      currentState = State::WASHER_WAIT__DRYER_OFF;
+      return State::WASHER_WAIT__DRYER_OFF;
     }
     break;
 
@@ -296,17 +313,17 @@ void stateLoop()
     if (washerOn() && !dryerOn())
     {
       pushMsg("Dryer Finished");
-      currentState = State::WASHER_ON__DRYER_OFF;
+      return State::WASHER_ON__DRYER_OFF;
     }
     if (!washerOn() && dryerOn())
     {
       pushMsg("Washer Waiting and Dryer Running");
-      currentState = State::WASHER_WAIT__DRYER_ON;
+      return State::WASHER_WAIT__DRYER_ON;
     }
     if (!washerOn() && !dryerOn())
     {
       pushMsg("Washer Waiting and Dryer Finished");
-      currentState = State::WASHER_WAIT__DRYER_OFF;
+      return State::WASHER_WAIT__DRYER_OFF;
     }
     break;
 
@@ -314,17 +331,17 @@ void stateLoop()
     if (washerOn() && dryerOn())
     {
       pushMsg("Washer Started and Dryer Started");
-      currentState = State::WASHER_ON__DRYER_ON;
+      return State::WASHER_ON__DRYER_ON;
     }
     if (washerOn() && !dryerOn())
     {
       pushMsg("Washer Restarted");
-      currentState = State::WASHER_ON__DRYER_OFF;
+      return State::WASHER_ON__DRYER_OFF;
     }
     if (!washerOn() && dryerOn())
     {
       pushMsg("Washer Finished and Dryer Started");
-      currentState = State::WASHER_OFF__DRYER_ON;
+      return State::WASHER_OFF__DRYER_ON;
     }
     if (!washerOn() && !dryerOn())
     {
@@ -335,12 +352,12 @@ void stateLoop()
     if (washerOn() && dryerOn())
     {
       pushMsg("Washer Restarted and Dryer Running");
-      currentState = State::WASHER_ON__DRYER_ON;
+      return State::WASHER_ON__DRYER_ON;
     }
     if (washerOn() && !dryerOn())
     {
       pushMsg("Washer Restarted and Dryer Finished");
-      currentState = State::WASHER_ON__DRYER_OFF;
+      return State::WASHER_ON__DRYER_OFF;
     }
     if (!washerOn() && dryerOn())
     {
@@ -348,10 +365,11 @@ void stateLoop()
     if (!washerOn() && !dryerOn())
     {
       pushMsg("Washer Waiting and Dryer Finished");
-      currentState = State::WASHER_WAIT__DRYER_OFF;
+      return State::WASHER_WAIT__DRYER_OFF;
     }
     break;
   }
+  return state;
 }
 
 /* ------------------------------------------------- */
@@ -369,7 +387,7 @@ void onInputReceived(String str)
   }
   else if (str == "status")
   {
-    println("State is " + (String)stateStr[(int)currentState]);
+    println("State is " + (String)stateStr[(int)state]);
     println("Washer is " + (String)(washerOn() ? "on" : "off"));
     println("Dryer is " + (String)(dryerOn() ? "on" : "off"));
   }
@@ -409,8 +427,13 @@ void setup()
     history_dryer[i] = 0;
   }
 
+  state = State::WASHER_OFF__DRYER_OFF;
+
   delay(1000);
+
   ledcWrite(LED_CHANNEL, 0);
+  ledcWrite(LED_CHANNEL_WASHER, 0);
+  ledcWrite(LED_CHANNEL_DRYER, 0);
 
   println("Setup Done");
 }
@@ -426,29 +449,33 @@ void loop()
 
   updateHistory();
 
-  stateLoop();
+  State nextState = stateLoop(state);
 
-  // Washer LED
-  if (currentState == State::WASHER_ON__DRYER_OFF || currentState == State::WASHER_ON__DRYER_ON)
+  if (nextState != state)
   {
-    ledcWrite(LED_CHANNEL_WASHER, 255);
-  }
-  else if (currentState == State::WASHER_WAIT__DRYER_OFF || currentState == State::WASHER_WAIT__DRYER_ON)
-  {
-    ledcWrite(LED_CHANNEL_WASHER, 128);
-  }
-  else
-  {
-    ledcWrite(LED_CHANNEL_WASHER, 0);
-  }
+    state = nextState;
+    // Washer LED
+    if (state == State::WASHER_ON__DRYER_OFF || state == State::WASHER_ON__DRYER_ON)
+    {
+      ledcWrite(LED_CHANNEL_WASHER, 255);
+    }
+    else if (state == State::WASHER_WAIT__DRYER_OFF || state == State::WASHER_WAIT__DRYER_ON)
+    {
+      ledcWrite(LED_CHANNEL_WASHER, 128);
+    }
+    else
+    {
+      ledcWrite(LED_CHANNEL_WASHER, 0);
+    }
 
-  // Dryer LED
-  if (currentState == State::WASHER_OFF__DRYER_ON || currentState == State::WASHER_ON__DRYER_ON || currentState == State::WASHER_WAIT__DRYER_ON)
-  {
-    ledcWrite(LED_CHANNEL_DRYER, 255);
-  }
-  else
-  {
-    ledcWrite(LED_CHANNEL_DRYER, 0);
+    // Dryer LED
+    if (state == State::WASHER_OFF__DRYER_ON || state == State::WASHER_ON__DRYER_ON || state == State::WASHER_WAIT__DRYER_ON)
+    {
+      ledcWrite(LED_CHANNEL_DRYER, 255);
+    }
+    else
+    {
+      ledcWrite(LED_CHANNEL_DRYER, 0);
+    }
   }
 }
